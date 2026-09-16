@@ -8,6 +8,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+// Uploads a local file to Cloudinary and removes the temporary file if the upload fails.
 const uploadOnCloudinary = async (localFilePath) => {
   try {
     if (!localFilePath) return null;
@@ -22,11 +23,11 @@ const uploadOnCloudinary = async (localFilePath) => {
     return response;
   } catch (error) {
     console.log("Error while uploading file", error);
-    fs.unlink(localFilePath); // remove the locally saved temp file for the failed upload
+    fs.unlink(localFilePath); // Remove the locally saved temporary file after an upload failure.
   }
 };
 
-// Upload an image
+// Uploads a sample image to Cloudinary when this module is evaluated.
 const uploadResult = await cloudinary.uploader
   .upload(
     "https://res.cloudinary.com/demo/image/upload/getting-started/shoes.jpg",

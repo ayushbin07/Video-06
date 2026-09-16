@@ -1,0 +1,42 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Enable format on save",
+			"type": "shell",
+			"command": "mkdir",
+			"args": [
+				"-p",
+				".vscode"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Write format on save settings",
+			"type": "shell",
+			"command": "printf '%s\\n' '{' '  \"editor.formatOnSave\": true,' '  \"[javascript]\": {' '    \"editor.defaultFormatter\": \"esbenp.prettier-vscode\"' '  },' '  \"[json]\": {' '    \"editor.defaultFormatter\": \"esbenp.prettier-vscode\"' '  }' '}'",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Create VS Code settings file",
+			"type": "shell",
+			"command": "touch",
+			"args": [
+				".vscode/settings.json"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Apply format on save configuration",
+			"type": "shell",
+			"command": "printf '%s\\n' '{' '  \"editor.formatOnSave\": true,' '  \"[javascript]\": {' '    \"editor.defaultFormatter\": \"esbenp.prettier-vscode\"' '  },' '  \"[json]\": {' '    \"editor.defaultFormatter\": \"esbenp.prettier-vscode\"' '  }' '}' > .vscode/settings.json",
+			"args": [],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

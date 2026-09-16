@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import cookieParser from "cookies-parser";
+import cookieParser from "cookie-parser";
 
 const app = express();
 
@@ -16,16 +16,19 @@ app.use(
     limit: "16kb",
   })
 );
-
 app.use(
   express.urlencoded({
     extended: true,
     limit: "16kb",
   })
 );
-
 app.use(express.static("public"));
-
 app.use(cookieParser());
+
+// Routes
+import userRouter from "../routes/user.routes.js";
+
+// Registers the user routes under the /api/v1/users URL prefix.
+app.use("/api/v1/users", userRouter);
 
 export { app };

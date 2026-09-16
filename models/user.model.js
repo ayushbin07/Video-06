@@ -48,6 +48,7 @@ const userSchema = new Schema(
   { timestamps: true }
 );
 
+// Hashes a user's password before saving, unless the password was not changed.
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
 
@@ -55,10 +56,12 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
+// Checks whether a plain-text password matches the hashed password stored on the user.
 userSchema.methods.isPasswordCorrect = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
 
+// Creates an access token containing the user's identity and configured expiration time.
 userSchema.methods.generateAccessToken = function () {
   return jwt.sign(
     {
@@ -74,6 +77,7 @@ userSchema.methods.generateAccessToken = function () {
   );
 };
 
+// Creates a refresh token containing the user's ID and configured expiration time.
 userSchema.methods.generateRefreshToken = async function () {
   jwt.sign(
     {
