@@ -1,6 +1,6 @@
+import "dotenv/config";
 import { v2 as cloudinary } from "cloudinary";
-import fs from "fs";
-import { configDotenv } from "dotenv";
+import { promises as fs } from "fs";
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -23,20 +23,10 @@ const uploadOnCloudinary = async (localFilePath) => {
     return response;
   } catch (error) {
     console.log("Error while uploading file", error);
-    fs.unlink(localFilePath); // Remove the locally saved temporary file after an upload failure.
+    await fs.unlink(localFilePath).catch((unlinkError) => {
+      console.log("Error while removing temporary file", unlinkError);
+    }); // Remove the locally saved temporary file after an upload failure.
   }
 };
-
-// Uploads a sample image to Cloudinary when this module is evaluated.
-const uploadResult = await cloudinary.uploader
-  .upload(
-    "https://res.cloudinary.com/demo/image/upload/getting-started/shoes.jpg",
-    {
-      public_id: "shoes",
-    }
-  )
-  .catch((error) => {
-    console.log(error);
-  });
 
 export { uploadOnCloudinary };
