@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
+const { Schema } = mongoose;
 
 // Describes the fields stored for each video and the user who owns it.
 const videoSchema = new Schema(

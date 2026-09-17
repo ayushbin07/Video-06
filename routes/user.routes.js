@@ -1,19 +1,30 @@
 import { Router } from "express";
-import { registerUser } from "../controllers/user.controller.js";
+import {
+  loginUser,
+  logoutUser,
+  registerUser,
+} from "../controllers/user.controller.js";
+import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
 const router = Router();
 
 router.route("/register").post(
-    upload.fields([
-        {
-            name: "avatar",
-            maxCount: 1
-        },{
-            name: "coverImage",
-            maxCount: 1
-        }
-    ]),
-    registerUser);
-// TODO: Add a login handler and connect it to the POST /login route.
+  upload.fields([
+    {
+      name: "avatar",
+      maxCount: 1,
+    },
+    {
+      name: "coverImage",
+      maxCount: 1,
+    },
+  ]),
+  registerUser
+);
+// Connect the login handler to the POST /login route.
+router.route("/login").post(loginUser);
+
+// Protected routes
+router.route("/logout").post(verifyJWT, logoutUser);
 
 export default router;
