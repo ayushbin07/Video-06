@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiErrors.js";
 import asyncHandler from "../utils/asyncHandler.js";
 import jwt from "jsonwebtoken";
 
+// Read the JWT from cookies or the Authorization header, validate it, and attach the logged-in user to the request before continuing.
 export const verifyJWT = asyncHandler(async (req, _, next) => {
   try {
     const token =
