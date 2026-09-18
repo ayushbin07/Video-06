@@ -5,7 +5,7 @@ import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
 
-// Generate a new access token and refresh token for a user, then save the refresh token on the user record.
+// Generates access and refresh tokens for a user and stores the refresh token on the user record.
 
 const generateAccessAndRefreshToken = async (userId) => {
   try {
@@ -26,7 +26,7 @@ const generateAccessAndRefreshToken = async (userId) => {
   }
 };
 
-// Accept a new signup request, validate the input, upload the avatar, create the user in MongoDB, and return the created profile without sensitive fields.
+// Registers a user, uploads the profile images, saves the user in MongoDB, and returns the profile without sensitive fields.
 
 const registerUser = asyncHandler(async (req, res) => {
   // Get user details from client (frontend)
@@ -100,7 +100,7 @@ const registerUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, createdUser, "User registered successfully."));
 });
 
-// Check the login credentials, issue JWT tokens, store them in cookies, and send the user information back to the client.
+// Verifies login credentials, issues JWT tokens in cookies, and returns the logged-in user's profile.
 
 const loginUser = asyncHandler(async (req, res) => {
   // Read login data from the request body.
@@ -159,7 +159,7 @@ const loginUser = asyncHandler(async (req, res) => {
     );
 });
 
-// Log the user out by clearing the JWT cookies and removing the stored refresh token from the database record.
+// Logs the user out by removing the stored refresh token and clearing the JWT cookies.
 
 const logoutUser = asyncHandler(async (req, res) => {
   await User.findByIdAndUpdate(
@@ -180,7 +180,7 @@ const logoutUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "User logged out"));
 });
 
-//generate access token by taking Refresh token
+// Verifies a refresh token, creates replacement tokens, and sends them as cookies.
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
   const incomingRefreshToken =
@@ -230,7 +230,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 });
 
-//change password
+// Verifies the current password and saves a new password for the authenticated user.
 
 const changeCurrentPassword = asyncHandler(async (req, res) => {
   const { oldPassword, newPassword } = req.body;
@@ -250,13 +250,13 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "Password changed successfully"));
 });
 
-//get current user
+// Returns the authenticated user's profile from the request.
 
 const getCurrentUser = asyncHandler(async (req, res) => {
   return res.status(200).json(200, req.user, "current user fetched");
 });
 
-//update account details
+// Updates the authenticated user's name and email address in MongoDB.
 
 const updateAccountDetails = asyncHandler(async (req, res) => {
   const { fullName, email } = req.body;
@@ -281,71 +281,62 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, user, "Account details updated successfully"));
 });
 
-//Update user avatar
+// Uploads a new avatar and saves its Cloudinary URL for the authenticated user.
 
-const updateUserAvatar = asyncHandler(async(req, res)=>{
-  const avatarLocalPath = req.file?.path
+const updateUserAvatar = asyncHandler(async (req, res) => {
+  const avatarLocalPath = req.file?.path;
 
   if (!avatarLocalPath) {
-    throw new ApiError(400, "Avatar file is missing")
+    throw new ApiError(400, "Avatar file is missing");
   }
 
-  const avatar = await uploadOnCloudinary(avatarLocalPath)
+  const avatar = await uploadOnCloudinary(avatarLocalPath);
 
   if (!avatar.url) {
-    throw new ApiError(400, "Error while uploading on avatar")
+    throw new ApiError(400, "Error while uploading on avatar");
   }
 
-   const user = await User.findByIdAndUpdate(
+  const user = await User.findByIdAndUpdate(
     req.user?._id,
     {
       $set: {
-        avatar: avatar.url
-      }
+        avatar: avatar.url,
+      },
     },
-    {new: true}
-  ).select("-password")
+    { new: true }
+  ).select("-password");
 
-  return res
-  .status(200)
-  .json(
-    200,
-    user,
-    "Avatar updated successfully."
-  )
-})
+  return res.status(200).json(200, user, "Avatar updated successfully.");
+});
 
-const updateUserCoverImage = asyncHandler(async(req, res)=>{
-  const coverImageLocalPath = req.file?.path
+// Uploads a new cover image and saves its Cloudinary URL for the authenticated user.
+const updateUserCoverImage = asyncHandler(async (req, res) => {
+  const coverImageLocalPath = req.file?.path;
 
   if (!coverImageLocalPath) {
-    throw new ApiError(400, "Cover Image is missing")
+    throw new ApiError(400, "Cover Image is missing");
   }
 
-  const coverImage = await uploadOnCloudinary(coverImageLocalPath)
+  const coverImage = await uploadOnCloudinary(coverImageLocalPath);
 
   if (!coverImage.url) {
-    throw new ApiError(400, "Error while uploading on cover image")
+    throw new ApiError(400, "Error while uploading on cover image");
   }
 
-  const user =  await User.findByIdAndUpdate(
+  const user = await User.findByIdAndUpdate(
     req.user?._id,
     {
       $set: {
-        coverImage: coverImage.url
-      }
+        coverImage: coverImage.url,
+      },
     },
-    {new: true}
-  ).select("-password")
+    { new: true }
+  ).select("-password");
 
   return res
-  .status(200)
-  .json(
-    new ApiResponse(
-    200,
-    user, "Cover Image updated successfully"
-  ))
-})
+    .status(200)
+    .json(new ApiResponse(200, user, "Cover Image updated successfully"));
+});
 
 export {
   registerUser,
@@ -356,5 +347,5 @@ export {
   getCurrentUser,
   updateAccountDetails,
   updateUserAvatar,
-  updateUserCoverImage
+  updateUserCoverImage,
 };
