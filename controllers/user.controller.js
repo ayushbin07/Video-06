@@ -229,6 +229,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
       );
   } catch (error) {
     throw new ApiError(401, "Invalid refresh token");
+    console.log("Refresh token error: ", error);
   }
 });
 
@@ -255,19 +256,22 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
 // Returns the authenticated user's profile from the request.
 
 const getCurrentUser = asyncHandler(async (req, res) => {
-  return res.status(200).json(200, req.user, "current user fetched");
+  return res
+    .status(200)
+    .json(new ApiResponse(200, req.user, "Current user fetched successfully"));
 });
 
 // Updates the authenticated user's name and email address in MongoDB.
 
 const updateAccountDetails = asyncHandler(async (req, res) => {
+  console.log(req.body); // Logs the request body
   const { fullName, email } = req.body;
 
   if (!fullName || !email) {
     throw new ApiError(400, "Need both user and email");
   }
 
-  const user = User.findByIdAndUpdate(
+  const user = await User.findByIdAndUpdate(
     req.user?._id,
     {
       $set: {
@@ -382,7 +386,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         },
         isSubscribed: {
           $cond: {
-            if: { $in: [req.user?._id, "subscribers.subscriber"] },
+            if: { $in: [req.user?._id, "$subscribers.subscriber"] },
             then: true,
             else: false,
           },
