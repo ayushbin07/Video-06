@@ -28,9 +28,11 @@ app.use(cookieParser());
 // Routes
 import userRouter from "../routes/user.routes.js";
 import tweetRouter from "../routes/tweet.route.js";
+import subscriptionRouter from "../routes/subscription.route.js";
 
 // Registers the user routes under the /api/v1/users URL prefix.
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/tweets", tweetRouter);
+app.use("/api/v1/subscriptions", subscriptionRouter);
 
 export { app };
