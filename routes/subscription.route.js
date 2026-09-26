@@ -26,7 +26,6 @@ router.route("/get-subscribers/:channelId").get(getChannelSubscribers);
 router.route("/get-subscription-list").get(getSubscriptionsList);
 
 // Check if current user is subscribed to a channel (via param /:channelId or query ?channelId=...)
-router.route("/is-subscribed/:channelId?").get(isSubscribedTo);
+router.route("/is-subscribed{/:channelId}").get(isSubscribedTo);
 
 export default router;
-

@@ -1,4 +1,4 @@
-import mongoose, { isValidObjectId } from "mongoose";
+import { isValidObjectId } from "mongoose";
 import { User } from "../models/user.model.js";
 import { Subscription } from "../models/subscription.model.js";
 import { ApiError } from "../utils/ApiErrors.js";
@@ -78,13 +78,15 @@ const getSubscriberCount = asyncHandler(async (req, res) => {
     channel: channelId.trim(),
   });
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      { subscriberCount },
-      "Subscriber count returned successfully"
-    )
-  );
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { subscriberCount },
+        "Subscriber count returned successfully"
+      )
+    );
 });
 
 // Retrieves the list of all subscribers for a given channel.
@@ -104,11 +106,7 @@ const getChannelSubscribers = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(
-      new ApiResponse(
-        200,
-        subscribers,
-        "Subscribers fetched successfully"
-      )
+      new ApiResponse(200, subscribers, "Subscribers fetched successfully")
     );
 });
 
@@ -130,11 +128,7 @@ const getSubscriptionsList = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(
-      new ApiResponse(
-        200,
-        channels,
-        "Subscribed channels fetched successfully"
-      )
+      new ApiResponse(200, channels, "Subscribed channels fetched successfully")
     );
 });
 
@@ -173,4 +167,3 @@ export {
   getSubscriptionsList,
   isSubscribedTo,
 };
-
