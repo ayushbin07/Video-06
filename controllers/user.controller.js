@@ -11,7 +11,7 @@ import mongoose from "mongoose";
 
 const generateAccessAndRefreshToken = async (userId) => {
   try {
-    const user = await User.findOne(userId);
+    const user = await User.findById(userId);
     const accessToken = user.generateAccessToken();
     console.log("Here is the access token: \n", accessToken);
     const refreshToken = user.generateRefreshToken();

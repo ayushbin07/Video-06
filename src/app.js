@@ -30,11 +30,15 @@ import userRouter from "../routes/user.routes.js";
 import tweetRouter from "../routes/tweet.route.js";
 import subscriptionRouter from "../routes/subscription.route.js";
 import playlistRouter from "../routes/playlist.route.js";
+import healthCheckRouter from "../routes/healthcheck.route.js";
+import videoRouter from "../routes/video.route.js";
 
 // Registers the user routes under the /api/v1/users URL prefix.
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/tweets", tweetRouter);
 app.use("/api/v1/subscriptions", subscriptionRouter);
-app.use("/api/v1/playlists", playlistRouter);
+//app.use("/api/v1/playlists", playlistRouter);
+app.use("/api/v1/healthcheck", healthCheckRouter);
+app.use("/api/v1/videos", videoRouter);
 
 export { app };
