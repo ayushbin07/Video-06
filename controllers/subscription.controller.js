@@ -98,10 +98,11 @@ const getChannelSubscribers = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Invalid channel ID");
   }
 
-  // 2. Find all subscriptions for this channel and populate subscriber profile info
+  // 2. Find all subscriptions for this channel and populate subscriber profile info.
+  // Include avatarType and blobatar so subscriber lists render Blobatar or custom uploaded avatars correctly.
   const subscribers = await Subscription.find({
     channel: channelId,
-  }).populate("subscriber", "username fullName avatar");
+  }).populate("subscriber", "username fullName avatar avatarType blobatar");
 
   return res
     .status(200)
@@ -178,6 +179,9 @@ const getSubscriptionsList = asyncHandler(async (req, res) => {
         "channel.username": 1,
         "channel.fullName": 1,
         "channel.avatar": 1,
+        // Include avatarType and blobatar customization for subscribed channels
+        "channel.avatarType": 1,
+        "channel.blobatar": 1,
         lastVideo: 1,
         lastTweet: 1,
       },

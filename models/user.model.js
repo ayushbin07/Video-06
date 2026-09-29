@@ -4,6 +4,29 @@ import jwt from "jsonwebtoken";
 const { Schema } = mongoose;
 import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
 
+const blobatarSchema = new Schema(
+  {
+    hue: {
+      type: Number,
+    },
+    tone: {
+      type: Number,
+      min: 0,
+      max: 1,
+    },
+    traits: {
+      type: Schema.Types.Mixed,
+    },
+    palette: {
+      type: Schema.Types.Mixed,
+    },
+    expression: {
+      type: String,
+    },
+  },
+  { _id: false }
+);
+
 const userSchema = new Schema(
   {
     username: {
@@ -27,9 +50,18 @@ const userSchema = new Schema(
       index: true,
       trim: true,
     },
+    avatarType: {
+      type: String,
+      enum: ["blobatar", "upload"],
+      default: function () {
+        return this.avatar ? "upload" : "blobatar";
+      },
+    },
     avatar: {
       type: String,
-      required: true,
+    },
+    blobatar: {
+      type: blobatarSchema,
     },
     coverImage: {
       type: String,

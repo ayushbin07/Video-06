@@ -15,6 +15,14 @@ const commentSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "User",
     },
+    tweet: {
+      type: Schema.Types.ObjectId,
+      ref: "Tweet",
+    },
+    comment: {
+      type: Schema.Types.ObjectId,
+      ref: "Comment",
+    },
   },
   {
     timestamps: true,

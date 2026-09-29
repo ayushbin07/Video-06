@@ -1,12 +1,15 @@
 import mongoose, { isValidObjectId } from "mongoose";
 import { Tweet } from "../models/tweet.model.js";
+import { Like } from "../models/like.model.js";
 import { ApiError } from "../utils/ApiErrors.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
+import { uploadOnCloudinary } from "../utils/cloudinary.js";
 
 // Creates a new tweet for the currently authenticated user.
 const createTweet = asyncHandler(async (req, res) => {
   const { content } = req.body;
+  const mediaPath = req.file?.path;
 
   // Validate tweet content: ensure it exists, is a string, and is not only whitespace
   if (!content || typeof content !== "string" || content.trim() === "") {
@@ -19,10 +22,25 @@ const createTweet = asyncHandler(async (req, res) => {
     throw new ApiError(401, "Unauthorized: User details not found");
   }
 
+  let media;
+  if (mediaPath) {
+    const mediaFile = await uploadOnCloudinary(mediaPath);
+
+    if (!mediaFile) {
+      throw new ApiError(400, "Tweet media could not be uploaded");
+    }
+
+    media = {
+      url: mediaFile.secure_url || mediaFile.url,
+      type: mediaFile.resource_type,
+    };
+  }
+
   // Create and persist the tweet in the database
   const tweet = await Tweet.create({
     content: content.trim(),
     owner: user._id,
+    media,
   });
 
   return res
@@ -61,10 +79,10 @@ const getUserTweets = asyncHandler(async (req, res) => {
         localField: "owner",
         foreignField: "_id",
         as: "owner",
-      }
+      },
     },
     {
-      $unwind: "$owner"
+      $unwind: "$owner",
     },
     {
       // Sort tweets in descending order so the newest tweets appear first
@@ -132,33 +150,40 @@ const updateTweet = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, updatedTweet, "Tweet updated successfully"));
 });
 
+// Deletes a tweet by its ID, confirms ownership by authenticated user, and cascades deletion to likes.
 const deleteTweet = asyncHandler(async (req, res) => {
   const { tweetId } = req.params;
 
+  // 1. Validate tweet ID parameter
   if (!tweetId?.trim() || !isValidObjectId(tweetId)) {
     throw new ApiError(400, "Tweet ID is invalid.");
   }
 
+  // 2. Fetch target tweet to check existence and ownership
   const tweet = await Tweet.findById(tweetId.trim());
-  console.log("Tweet was: ", tweet);
 
   if (!tweet) {
     throw new ApiError(404, "Tweet not found");
   }
 
+  // 3. Confirm that the authenticated user is the owner of the tweet
   if (tweet.owner.toString() !== req.user?._id?.toString()) {
     throw new ApiError(403, "You are not authorized to delete this tweet");
   }
 
+  // 4. Delete the tweet document from the database
   const response = await Tweet.findByIdAndDelete(tweetId);
 
   if (!response) {
     throw new ApiError(500, "Couldn't delete the tweet");
   }
 
+  // 5. Cascade delete: remove any likes associated with this tweet
+  await Like.deleteMany({ tweet: tweetId });
+
   return res
     .status(200)
-    .json(new ApiResponse(200, "Tweet deleted successfully"));
+    .json(new ApiResponse(200, { tweetId }, "Tweet deleted successfully"));
 });
 
 const getCommunityTweets = asyncHandler(async (req, res) => {
@@ -172,12 +197,11 @@ const getCommunityTweets = asyncHandler(async (req, res) => {
   // Extract pagination parameters from query string with safe fallback defaults
   const { page = 1, limit = 10 } = req.query;
 
-  // Construct the aggregation pipeline without awaiting:
+  // Build aggregation pipeline to retrieve community tweets from all creators (including the authenticated user)
+  // so users can view their own posts, manage them, and use the delete tweet API.
   const tweetAggregate = Tweet.aggregate([
     {
-      $match: {
-        owner: { $ne: new mongoose.Types.ObjectId(userId) }, // Exclude tweets from the authenticated user
-      },
+      $sort: { createdAt: -1 },
     },
     {
       $lookup: {
@@ -185,10 +209,10 @@ const getCommunityTweets = asyncHandler(async (req, res) => {
         localField: "owner",
         foreignField: "_id",
         as: "owner",
-      }
+      },
     },
     {
-      $unwind: "$owner"
+      $unwind: "$owner",
     },
     // fetch past 1 tweet of user (excluding the current one)
     {
@@ -201,40 +225,128 @@ const getCommunityTweets = asyncHandler(async (req, res) => {
               $expr: {
                 $and: [
                   { $eq: ["$owner", "$$ownerId"] },
-                  { $ne: ["$_id", "$$currentTweetId"] }
-                ]
-              }
-            }
+                  //{ $ne: ["$_id", "$$currentTweetId"] }
+                ],
+              },
+            },
           },
           { $sort: { createdAt: -1 } },
-          { $limit: 1 }
+          { $limit: 1 },
         ],
         as: "lastTweet",
-      }
+      },
+    },
+    // Lookup comments to compute total comments count on each tweet
+    {
+      $lookup: {
+        from: "comments",
+        localField: "_id",
+        foreignField: "tweet",
+        as: "comments",
+      },
+    },
+    // Lookup likes to compute total likes count on each tweet
+    {
+      $lookup: {
+        from: "likes",
+        localField: "_id",
+        foreignField: "tweet",
+        as: "likes",
+      },
     },
     {
       $addFields: {
-        lastTweet: { $first: "$lastTweet" }
-      }
+        lastTweet: { $first: "$lastTweet" },
+        commentsCount: { $size: "$comments" },
+        likesCount: { $size: "$likes" },
+      },
     },
 
     {
       $sort: {
         createdAt: -1,
       },
-    }
-]);
+    },
+  ]);
 
-const options = {
-  page: Math.max(1, parseInt(page, 10) || 1),
-  limit: Math.max(1, parseInt(limit, 10) || 10),
-};
+  const options = {
+    page: Math.max(1, parseInt(page, 10) || 1),
+    limit: Math.max(1, parseInt(limit, 10) || 10),
+  };
 
-const tweets = await Tweet.aggregatePaginate(tweetAggregate, options);
+  const tweets = await Tweet.aggregatePaginate(tweetAggregate, options);
 
-return res
-  .status(200)
-  .json(new ApiResponse(200, tweets, "Community tweets fetched successfully"));
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, tweets, "Community tweets fetched successfully")
+    );
+});
+
+// Retrieves active discussions with reply counts and author details.
+// Sorted by replies count and recency to highlight engaging conversations on the home dashboard.
+const getActiveDiscussions = asyncHandler(async (req, res) => {
+  const { limit = 6 } = req.query;
+
+  const discussions = await Tweet.aggregate([
+    {
+      $lookup: {
+        from: "comments",
+        localField: "_id",
+        foreignField: "tweet",
+        as: "comments",
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "owner",
+        foreignField: "_id",
+        as: "owner",
+        pipeline: [
+          {
+            $project: {
+              fullName: 1,
+              username: 1,
+              avatar: 1,
+              avatarType: 1,
+              blobatar: 1,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $unwind: "$owner",
+    },
+    {
+      $addFields: {
+        repliesCount: { $size: "$comments" },
+      },
+    },
+    {
+      $sort: { repliesCount: -1, createdAt: -1 },
+    },
+    {
+      $limit: parseInt(limit, 10) || 6,
+    },
+    {
+      $project: {
+        _id: 1,
+        content: 1,
+        repliesCount: 1,
+        media: 1,
+        owner: 1,
+        createdAt: 1,
+      },
+    },
+  ]);
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, discussions, "Active discussions fetched successfully")
+    );
 });
 
 export {
@@ -243,4 +355,6 @@ export {
   updateTweet,
   deleteTweet,
   getCommunityTweets,
+  getActiveDiscussions,
 };
+

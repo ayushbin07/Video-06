@@ -31,3 +31,29 @@ export const verifyJWT = asyncHandler(async (req, _, next) => {
     throw new ApiError(401, error?.message || "Invalid access token");
   }
 });
+
+// Optional JWT verification middleware:
+// Attempts to authenticate the user if a valid token is present in cookies or the Authorization header,
+// but gracefully continues without throwing an error if the user is unauthenticated or token is missing/invalid.
+// This allows discovery pages (like Home and Recommended Users) to work for both guests and logged-in users.
+export const verifyJWTOptional = asyncHandler(async (req, _, next) => {
+  try {
+    const token =
+      req.cookies?.accessToken ||
+      req.header("Authorization")?.replace("Bearer ", "");
+
+    if (token) {
+      const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+      const user = await User.findById(decodedToken?._id).select(
+        "-password -refreshToken"
+      );
+      if (user) {
+        req.user = user;
+      }
+    }
+  } catch (error) {
+    // Gracefully ignore token validation failures for optional auth so guests can browse freely
+  }
+  next();
+});
+

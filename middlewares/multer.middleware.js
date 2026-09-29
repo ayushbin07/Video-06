@@ -13,4 +13,22 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-export { upload };
+const tweetMediaUpload = multer({
+  storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024,
+  },
+  fileFilter: (req, file, cb) => {
+    if (
+      file.mimetype.startsWith("image/") ||
+      file.mimetype.startsWith("video/")
+    ) {
+      cb(null, true);
+      return;
+    }
+
+    cb(new Error("Only image and video files are allowed"));
+  },
+});
+
+export { upload, tweetMediaUpload };

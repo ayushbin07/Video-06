@@ -5,6 +5,8 @@ import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
 import { Subscription } from "../models/subscription.model.js";
+import { Comment } from "../models/comment.model.js";
+import { Tweet } from "../models/tweet.model.js";
 import mongoose from "mongoose";
 
 // Generates access and refresh tokens for a user and stores the refresh token on the user record.
@@ -37,14 +39,20 @@ const registerUser = asyncHandler(async (req, res) => {
 
   // Validation - not empty
   if (
-    [fullName, email, username, password].some((field) => field?.trim() === "")
+    [fullName, email, username, password].some((field) => !field || field.trim() === "")
   ) {
     throw new ApiError(400, "All fields are required");
   }
 
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanUsername = username.trim().toLowerCase();
+
   // Check if user already exists: username, email
   const existedUser = await User.findOne({
-    $or: [{ username }, { email }],
+    $or: [
+      { username: cleanUsername },
+      { email: cleanEmail },
+    ],
   });
 
   if (existedUser) {
@@ -62,22 +70,44 @@ const registerUser = asyncHandler(async (req, res) => {
     }
   }
 
-  if (!avatarUrl && req.body.avatar) {
-    avatarUrl = req.body.avatar;
+  // Discard any legacy placeholder or dicebear avatar URLs; only accept real uploads
+  if (avatarUrl && avatarUrl.includes("dicebear")) {
+    avatarUrl = "";
+  }
+  if (!avatarUrl && req.body.avatar && !req.body.avatar.includes("dicebear")) {
+    avatarUrl = req.body.avatar.trim();
   }
 
-  if (!avatarUrl && req.body.blobatar) {
-    const seed = req.body.blobatar;
-    avatarUrl = seed.startsWith("http") || seed.startsWith("data:")
-      ? seed
-      : `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(seed)}`;
+  // Parse initial blobatar options if provided by the client
+  let blobatarConfig = undefined;
+  if (req.body.blobatar) {
+    if (typeof req.body.blobatar === "object") {
+      blobatarConfig = req.body.blobatar;
+    } else if (typeof req.body.blobatar === "string") {
+      try {
+        const parsed = JSON.parse(req.body.blobatar);
+        if (typeof parsed === "object") blobatarConfig = parsed;
+      } catch {
+        // Ignore unparseable strings
+      }
+    }
   }
 
-  if (!avatarUrl) {
-    throw new ApiError(400, "Avatar is required");
+  // Determine avatarType:
+  // By default, every user without an uploaded avatar image uses Blobatar.
+  // If user uploaded a valid photo and requested "upload", set "upload".
+  let avatarType = "blobatar";
+  if (req.body.avatarType === "upload" && avatarUrl) {
+    avatarType = "upload";
+  } else if (req.body.avatarType === "blobatar") {
+    avatarType = "blobatar";
+  } else if (avatarUrl) {
+    avatarType = "upload";
+  } else {
+    // No avatar image: Blobatar is strictly the default
+    avatarType = "blobatar";
   }
 
-  //const coverImageLocalPath = req.files?.coverImage?.[0]?.path;
   let coverImageLocalPath;
   if (
     req.files &&
@@ -92,11 +122,13 @@ const registerUser = asyncHandler(async (req, res) => {
   // create a user object - create entry in db
   const user = await User.create({
     fullName,
-    avatar: avatarUrl,
+    avatar: avatarUrl || undefined,
+    avatarType,
+    blobatar: blobatarConfig,
     coverImage: coverImage?.url || "",
-    email,
+    email: cleanEmail,
     password,
-    username: username.toLowerCase(),
+    username: cleanUsername,
   });
 
   // remove password and refresh token field from response
@@ -118,17 +150,21 @@ const registerUser = asyncHandler(async (req, res) => {
 // Verifies login credentials, issues JWT tokens in cookies, and returns the logged-in user's profile.
 
 const loginUser = asyncHandler(async (req, res) => {
-  // Read login data from the request body.
-  const { email, username, password } = req.body;
-  console.log(email);
-  // Require a username or email address.
-  if (!(username || email)) {
+  const { email, username, password } = req.body || {};
+  const rawIdentifier = (username || email || "").trim();
+  if (!rawIdentifier) {
     throw new ApiError(400, "Username or Email is required");
   }
 
-  // Find the matching user.
+  const cleanIdentifier = rawIdentifier.toLowerCase();
+
+  // Find the matching user (checks username or email case-insensitively).
   const user = await User.findOne({
-    $or: [{ username }, { email }],
+    $or: [
+      { username: cleanIdentifier },
+      { email: cleanIdentifier },
+      { email: rawIdentifier },
+    ],
   });
 
   if (!user) {
@@ -154,7 +190,7 @@ const loginUser = asyncHandler(async (req, res) => {
 
   const options = {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === "production",
   };
 
   return res
@@ -185,7 +221,7 @@ const logoutUser = asyncHandler(async (req, res) => {
 
   const options = {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === "production",
   };
 
   return res
@@ -223,7 +259,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 
     const options = {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production",
     };
 
     const { accessToken, refreshToken: newRefreshToken } =
@@ -300,32 +336,152 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, user, "Account details updated successfully"));
 });
 
-// Uploads a new avatar and saves its Cloudinary URL for the authenticated user.
-
+// Uploads a new avatar or switches active avatarType between "blobatar" and "upload".
 const updateUserAvatar = asyncHandler(async (req, res) => {
   const avatarLocalPath = req.file?.path;
+  const requestedAvatarType = req.body?.avatarType;
 
-  if (!avatarLocalPath) {
-    throw new ApiError(400, "Avatar file is missing");
+  // Case 1: Image file is uploaded
+  if (avatarLocalPath) {
+    const avatar = await uploadOnCloudinary(avatarLocalPath);
+
+    if (!avatar?.url) {
+      throw new ApiError(400, "Error while uploading avatar");
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user?._id,
+      {
+        $set: {
+          avatar: avatar.url,
+          avatarType: "upload",
+        },
+      },
+      { new: true }
+    ).select("-password -refreshToken");
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, updatedUser, "Avatar updated successfully."));
   }
 
-  const avatar = await uploadOnCloudinary(avatarLocalPath);
+  // Case 2: Switching active avatar type (e.g. { avatarType: "blobatar" } or { avatarType: "upload" })
+  // The user's avatar preference is explicitly stored in the MongoDB database document.
+  if (requestedAvatarType) {
+    if (!["blobatar", "upload"].includes(requestedAvatarType)) {
+      throw new ApiError(400, "Invalid avatarType. Must be 'blobatar' or 'upload'.");
+    }
 
-  if (!avatar.url) {
-    throw new ApiError(400, "Error while uploading on avatar");
+    // When switching to uploaded photo mode, verify that the user actually has a valid uploaded image in the DB
+    if (requestedAvatarType === "upload") {
+      const userDoc = await User.findById(req.user?._id);
+      const hasUploadedPhoto = Boolean(
+        userDoc?.avatar &&
+        userDoc.avatar.trim() !== "" &&
+        !userDoc.avatar.includes("dicebear")
+      );
+      if (!hasUploadedPhoto) {
+        throw new ApiError(
+          400,
+          "No uploaded profile picture found. Please upload a photo before switching to upload mode."
+        );
+      }
+    }
+
+    // Permanently persist the user's avatarType choice into the database
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user?._id,
+      {
+        $set: {
+          avatarType: requestedAvatarType,
+        },
+      },
+      { new: true }
+    ).select("-password -refreshToken");
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          updatedUser,
+          `Avatar choice saved to database: active avatar switched to ${requestedAvatarType}.`
+        )
+      );
   }
 
-  const user = await User.findByIdAndUpdate(
+  throw new ApiError(400, "Avatar file or avatarType is required");
+});
+
+// Updates Blobatar configuration options for the authenticated user and activates blobatar mode.
+const updateBlobatarConfig = asyncHandler(async (req, res) => {
+  const { hue, tone, traits, palette, expression } = req.body || {};
+
+  const cleanBlobatar = {};
+
+  if (hue !== undefined && hue !== null && hue !== "") {
+    const numHue = Number(hue);
+    if (isNaN(numHue)) {
+      throw new ApiError(400, "Hue must be a valid number");
+    }
+    cleanBlobatar.hue = numHue;
+  }
+
+  if (tone !== undefined && tone !== null && tone !== "") {
+    const numTone = Number(tone);
+    if (isNaN(numTone) || numTone < 0 || numTone > 1) {
+      throw new ApiError(400, "Tone must be a number between 0 and 1");
+    }
+    cleanBlobatar.tone = numTone;
+  }
+
+  if (traits !== undefined && traits !== null) {
+    if (typeof traits !== "object" || Array.isArray(traits)) {
+      throw new ApiError(400, "Traits must be an object");
+    }
+    cleanBlobatar.traits = traits;
+  }
+
+  if (palette !== undefined && palette !== null) {
+    if (typeof palette !== "object" || Array.isArray(palette)) {
+      throw new ApiError(400, "Palette must be an object of color mappings");
+    }
+    cleanBlobatar.palette = palette;
+  }
+
+  if (expression !== undefined && expression !== null && expression !== "") {
+    if (typeof expression !== "string") {
+      throw new ApiError(400, "Expression must be a string");
+    }
+    cleanBlobatar.expression = expression.trim();
+  }
+
+  // Identity is always req.user._id (never client controlled).
+  // Update blobatar sub-document and set active avatarType to blobatar.
+  const updatedUser = await User.findByIdAndUpdate(
     req.user?._id,
     {
       $set: {
-        avatar: avatar.url,
+        blobatar: cleanBlobatar,
+        avatarType: "blobatar",
       },
     },
     { new: true }
-  ).select("-password");
+  ).select("-password -refreshToken");
 
-  return res.status(200).json(200, user, "Avatar updated successfully.");
+  if (!updatedUser) {
+    throw new ApiError(404, "User not found");
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        updatedUser,
+        "Blobatar configuration updated successfully."
+      )
+    );
 });
 
 // Uploads a new cover image and saves its Cloudinary URL for the authenticated user.
@@ -415,6 +571,9 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
         channelsSubscribedToCount: 1,
         isSubscribed: 1,
         avatar: 1,
+        // Project avatarType and blobatar customization so visitors to the channel see the user's active avatar & styling
+        avatarType: 1,
+        blobatar: 1,
         coverImage: 1,
       },
     },
@@ -461,6 +620,9 @@ const getWatchHistory = asyncHandler(async (req, res) => {
                     fullName: 1,
                     username: 1,
                     avatar: 1,
+                    // Project avatarType and blobatar so video creators in watch history render with their chosen avatar
+                    avatarType: 1,
+                    blobatar: 1,
                   },
                 },
               ],
@@ -489,15 +651,21 @@ const getWatchHistory = asyncHandler(async (req, res) => {
     );
 });
 
+// Retrieves recommended users to follow based on subscriber popularity and community presence.
+// Supports both authenticated users (excluding already-followed users and self) and guest visitors.
 const getReccomendedUsersToFollow = asyncHandler(async (req, res) => {
-  //I want users that are not follow by current user in this list sorted by the number of subscribers they have in descending order. I also want the limit it be flexible and be passed in the query string. I also want to exclude the current user from this list. I also want to include the number of subscribers each user has in the response.
-  const { limit = 10 } = req.query;
+  const { limit = 8 } = req.query;
+  const currentUserId = req.user?._id
+    ? new mongoose.Types.ObjectId(req.user._id)
+    : null;
 
-  const users = await User.aggregate([
+  const matchFilter = currentUserId
+    ? { _id: { $ne: currentUserId } }
+    : {};
+
+  const pipeline = [
     {
-      $match: {
-        _id: { $ne: new mongoose.Types.ObjectId(req.user._id) },
-      },
+      $match: matchFilter,
     },
     {
       $lookup: {
@@ -507,28 +675,47 @@ const getReccomendedUsersToFollow = asyncHandler(async (req, res) => {
         as: "subscribers",
       },
     },
-    {
+  ];
+
+  if (currentUserId) {
+    // Exclude users already followed by the current user
+    pipeline.push({
       $match: {
-        "subscribers.subscriber": { $ne: new mongoose.Types.ObjectId(req.user._id) }
-      }
-    },
+        "subscribers.subscriber": { $ne: currentUserId },
+      },
+    });
+  }
+
+  pipeline.push(
     {
       $addFields: {
         subscribersCount: { $size: "$subscribers" },
+        isSubscribed: false,
       },
     },
     {
-      $sort: { subscribersCount: -1 },
+      $sort: { subscribersCount: -1, createdAt: -1 },
     },
     {
-      $limit: parseInt(limit),
+      $limit: parseInt(limit, 10) || 8,
     },
-  ]);
+    {
+      $project: {
+        _id: 1,
+        fullName: 1,
+        username: 1,
+        email: 1,
+        avatar: 1,
+        avatarType: 1,
+        blobatar: 1,
+        coverImage: 1,
+        subscribersCount: 1,
+        isSubscribed: 1,
+      },
+    }
+  );
 
-  const options = {
-    page: 1,
-    limit: parseInt(limit),
-  };
+  const users = await User.aggregate(pipeline);
 
   return res
     .status(200)
@@ -536,7 +723,112 @@ const getReccomendedUsersToFollow = asyncHandler(async (req, res) => {
       new ApiResponse(
         200,
         users,
-        "Reccomended users to follow fetched successfully"
+        "Recommended users to follow fetched successfully"
+      )
+    );
+});
+
+// Gathers recent authentic community activity (replies, follows, and new posts)
+// to power the homepage recent activity timeline without mock data.
+const getRecentActivity = asyncHandler(async (req, res) => {
+  const currentUserId = req.user?._id?.toString();
+
+  // 1. Fetch recent comments and replies with author and tweet info
+  const recentComments = await Comment.find()
+    .sort({ createdAt: -1 })
+    .limit(8)
+    .populate("owner", "fullName username avatar avatarType blobatar")
+    .populate("tweet", "content owner")
+    .populate("comment", "content owner");
+
+  // 2. Fetch recent subscriptions (follows)
+  const recentSubs = await Subscription.find()
+    .sort({ createdAt: -1 })
+    .limit(6)
+    .populate("subscriber", "fullName username avatar avatarType blobatar")
+    .populate("channel", "fullName username avatar avatarType blobatar");
+
+  // 3. Fetch recent community tweets
+  const recentTweets = await Tweet.find()
+    .sort({ createdAt: -1 })
+    .limit(6)
+    .populate("owner", "fullName username avatar avatarType blobatar");
+
+  const activities = [];
+
+  // Format comments / replies
+  for (const c of recentComments) {
+    if (!c.owner) continue;
+    const isCurrentUserPost = c.tweet?.owner?.toString() === currentUserId;
+    const authorName = c.owner.fullName || c.owner.username;
+
+    let description = "";
+    if (isCurrentUserPost && currentUserId) {
+      description = `${authorName} replied to your post`;
+    } else if (c.tweet?.content) {
+      const snippet =
+        c.tweet.content.length > 35
+          ? c.tweet.content.slice(0, 35) + "..."
+          : c.tweet.content;
+      description = `${authorName} replied: "${snippet}"`;
+    } else {
+      description = `${authorName} commented in the community`;
+    }
+
+    activities.push({
+      id: `comment-${c._id}`,
+      type: "reply",
+      user: c.owner,
+      text: description,
+      targetId: c.tweet?._id || c._id,
+      createdAt: c.createdAt,
+    });
+  }
+
+  // Format follows
+  for (const s of recentSubs) {
+    if (!s.subscriber || !s.channel) continue;
+    const subName = s.subscriber.fullName || s.subscriber.username;
+    const channelName = s.channel.fullName || s.channel.username;
+    activities.push({
+      id: `sub-${s._id}`,
+      type: "follow",
+      user: s.subscriber,
+      text: `${subName} started following ${channelName}`,
+      targetId: s.channel.username,
+      createdAt: s.createdAt,
+    });
+  }
+
+  // Format posts
+  for (const t of recentTweets) {
+    if (!t.owner) continue;
+    const authorName = t.owner.fullName || t.owner.username;
+    const snippet =
+      t.content.length > 40 ? t.content.slice(0, 40) + "..." : t.content;
+    activities.push({
+      id: `tweet-${t._id}`,
+      type: "post",
+      user: t.owner,
+      text: `${authorName} posted: "${snippet}"`,
+      targetId: t._id,
+      createdAt: t.createdAt,
+    });
+  }
+
+  // Sort combined activity stream by most recent first
+  activities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  // Limit to top 8 items
+  const limitedActivities = activities.slice(0, 8);
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        limitedActivities,
+        "Recent activity fetched successfully"
       )
     );
 });
@@ -550,8 +842,11 @@ export {
   getCurrentUser,
   updateAccountDetails,
   updateUserAvatar,
+  updateBlobatarConfig,
   updateUserCoverImage,
   getUserChannelProfile,
   getWatchHistory,
-  getReccomendedUsersToFollow
+  getReccomendedUsersToFollow,
+  getRecentActivity,
 };
+

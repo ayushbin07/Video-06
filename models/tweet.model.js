@@ -11,6 +11,15 @@ const tweetSchema = new Schema(
       type: String,
       required: true,
     },
+    media: {
+      url: {
+        type: String,
+      },
+      type: {
+        type: String,
+        enum: ["image", "video"],
+      },
+    },
   },
   {
     timestamps: true,
