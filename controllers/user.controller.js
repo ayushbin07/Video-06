@@ -52,10 +52,29 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   // Check for images, check for avatar
-  const avatarLocalPath = req.files?.avatar[0]?.path;
+  const avatarLocalPath = req.files?.avatar?.[0]?.path;
+  let avatarUrl = "";
 
-  if (!avatarLocalPath) {
-    throw new ApiError(400, "Avatar image not found");
+  if (avatarLocalPath) {
+    const avatar = await uploadOnCloudinary(avatarLocalPath);
+    if (avatar?.url) {
+      avatarUrl = avatar.url;
+    }
+  }
+
+  if (!avatarUrl && req.body.avatar) {
+    avatarUrl = req.body.avatar;
+  }
+
+  if (!avatarUrl && req.body.blobatar) {
+    const seed = req.body.blobatar;
+    avatarUrl = seed.startsWith("http") || seed.startsWith("data:")
+      ? seed
+      : `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(seed)}`;
+  }
+
+  if (!avatarUrl) {
+    throw new ApiError(400, "Avatar is required");
   }
 
   //const coverImageLocalPath = req.files?.coverImage?.[0]?.path;
@@ -68,18 +87,12 @@ const registerUser = asyncHandler(async (req, res) => {
     coverImageLocalPath = req.files.coverImage[0].path;
   }
 
-  // upload them to cloudinary, avatar
-  const avatar = await uploadOnCloudinary(avatarLocalPath);
   const coverImage = await uploadOnCloudinary(coverImageLocalPath);
-
-  if (!avatar) {
-    throw new ApiError(400, "Avatar file is required");
-  }
 
   // create a user object - create entry in db
   const user = await User.create({
     fullName,
-    avatar: avatar.url,
+    avatar: avatarUrl,
     coverImage: coverImage?.url || "",
     email,
     password,
@@ -476,6 +489,58 @@ const getWatchHistory = asyncHandler(async (req, res) => {
     );
 });
 
+const getReccomendedUsersToFollow = asyncHandler(async (req, res) => {
+  //I want users that are not follow by current user in this list sorted by the number of subscribers they have in descending order. I also want the limit it be flexible and be passed in the query string. I also want to exclude the current user from this list. I also want to include the number of subscribers each user has in the response.
+  const { limit = 10 } = req.query;
+
+  const users = await User.aggregate([
+    {
+      $match: {
+        _id: { $ne: new mongoose.Types.ObjectId(req.user._id) },
+      },
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "channel",
+        as: "subscribers",
+      },
+    },
+    {
+      $match: {
+        "subscribers.subscriber": { $ne: new mongoose.Types.ObjectId(req.user._id) }
+      }
+    },
+    {
+      $addFields: {
+        subscribersCount: { $size: "$subscribers" },
+      },
+    },
+    {
+      $sort: { subscribersCount: -1 },
+    },
+    {
+      $limit: parseInt(limit),
+    },
+  ]);
+
+  const options = {
+    page: 1,
+    limit: parseInt(limit),
+  };
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        users,
+        "Reccomended users to follow fetched successfully"
+      )
+    );
+});
+
 export {
   registerUser,
   loginUser,
@@ -488,4 +553,5 @@ export {
   updateUserCoverImage,
   getUserChannelProfile,
   getWatchHistory,
+  getReccomendedUsersToFollow
 };

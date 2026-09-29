@@ -1,4 +1,4 @@
-import { isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId } from "mongoose";
 import { User } from "../models/user.model.js";
 import { Subscription } from "../models/subscription.model.js";
 import { ApiError } from "../utils/ApiErrors.js";
@@ -120,10 +120,69 @@ const getSubscriptionsList = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Invalid subscriber/user ID");
   }
 
-  // 2. Find all channels this user is subscribed to and populate channel profile info
-  const channels = await Subscription.find({
-    subscriber: subscriberId,
-  }).populate("channel", "username fullName avatar");
+  // 2. Find all channels this user is subscribed to and populate channel profile info along with their latest video/tweet
+  const channels = await Subscription.aggregate([
+    {
+      $match: {
+        subscriber: new mongoose.Types.ObjectId(subscriberId),
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "channel",
+        foreignField: "_id",
+        as: "channel",
+      },
+    },
+    {
+      $unwind: "$channel",
+    },
+    {
+      $lookup: {
+        from: "videos",
+        let: { channelId: "$channel._id" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$owner", "$$channelId"] } } },
+          { $sort: { createdAt: -1 } },
+          { $limit: 1 },
+        ],
+        as: "lastVideo",
+      },
+    },
+    {
+      $lookup: {
+        from: "tweets",
+        let: { channelId: "$channel._id" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$owner", "$$channelId"] } } },
+          { $sort: { createdAt: -1 } },
+          { $limit: 1 },
+        ],
+        as: "lastTweet",
+      },
+    },
+    {
+      $addFields: {
+        lastVideo: { $first: "$lastVideo" },
+        lastTweet: { $first: "$lastTweet" },
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+        subscriber: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        "channel._id": 1,
+        "channel.username": 1,
+        "channel.fullName": 1,
+        "channel.avatar": 1,
+        lastVideo: 1,
+        lastTweet: 1,
+      },
+    }
+  ]);
 
   return res
     .status(200)

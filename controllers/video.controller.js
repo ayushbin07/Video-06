@@ -1,6 +1,4 @@
-import mongoose from "mongoose";
 import { Video } from "../models/video.model.js";
-import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiErrors.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
@@ -39,7 +37,6 @@ const publishVideo = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Thumbnail is not uploaded");
   }
 
-
   const video = await Video.create({
     videoFile: videoFile.url,
     thumbnail: thumbnailFile.url,
@@ -48,15 +45,16 @@ const publishVideo = asyncHandler(async (req, res) => {
     duration: Number(videoFile.duration),
     owner: req.user?._id,
     isPublished: true,
-    views: 0
+    views: 0,
   });
 
-  if (!video ) {
+  if (!video) {
     throw new ApiError(500, "Failed to upload video");
   }
-    
 
-  return res.status(200).json(new ApiResponse(200, video, "Video is published successfully"));
+  return res
+    .status(200)
+    .json(new ApiResponse(200, video, "Video is published successfully"));
 });
 
 export { publishVideo };

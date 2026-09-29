@@ -11,6 +11,7 @@ import {
   updateAccountDetails,
   updateUserAvatar,
   updateUserCoverImage,
+  getReccomendedUsersToFollow
 } from "../controllers/user.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
@@ -46,6 +47,7 @@ router
   .patch(verifyJWT, upload.single("coverImage"), updateUserCoverImage); //Checked
 router.route("/c/:username").get(verifyJWT, getUserChannelProfile); //Checked
 router.route("/history").get(verifyJWT, getWatchHistory); //In Progress
+router.route("/get-recommended-users").get(verifyJWT, getReccomendedUsersToFollow); //In Progress
 
 
 export default router;

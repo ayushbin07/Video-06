@@ -56,6 +56,17 @@ const getUserTweets = asyncHandler(async (req, res) => {
       },
     },
     {
+      $lookup: {
+        from: "users",
+        localField: "owner",
+        foreignField: "_id",
+        as: "owner",
+      }
+    },
+    {
+      $unwind: "$owner"
+    },
+    {
       // Sort tweets in descending order so the newest tweets appear first
       $sort: {
         createdAt: -1,
@@ -146,8 +157,90 @@ const deleteTweet = asyncHandler(async (req, res) => {
   }
 
   return res
-  .status(200)
-  .json(new ApiResponse(200, "Tweet deleted successfully"));
+    .status(200)
+    .json(new ApiResponse(200, "Tweet deleted successfully"));
 });
 
-export { createTweet, getUserTweets, updateTweet, deleteTweet };
+const getCommunityTweets = asyncHandler(async (req, res) => {
+  // extreact user ID
+  const userId = req.user?._id;
+
+  if (!userId) {
+    throw new ApiError(401, "Unauthorized: User details not found");
+  }
+
+  // Extract pagination parameters from query string with safe fallback defaults
+  const { page = 1, limit = 10 } = req.query;
+
+  // Construct the aggregation pipeline without awaiting:
+  const tweetAggregate = Tweet.aggregate([
+    {
+      $match: {
+        owner: { $ne: new mongoose.Types.ObjectId(userId) }, // Exclude tweets from the authenticated user
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "owner",
+        foreignField: "_id",
+        as: "owner",
+      }
+    },
+    {
+      $unwind: "$owner"
+    },
+    // fetch past 1 tweet of user (excluding the current one)
+    {
+      $lookup: {
+        from: "tweets",
+        let: { ownerId: "$owner._id", currentTweetId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$owner", "$$ownerId"] },
+                  { $ne: ["$_id", "$$currentTweetId"] }
+                ]
+              }
+            }
+          },
+          { $sort: { createdAt: -1 } },
+          { $limit: 1 }
+        ],
+        as: "lastTweet",
+      }
+    },
+    {
+      $addFields: {
+        lastTweet: { $first: "$lastTweet" }
+      }
+    },
+
+    {
+      $sort: {
+        createdAt: -1,
+      },
+    }
+]);
+
+const options = {
+  page: Math.max(1, parseInt(page, 10) || 1),
+  limit: Math.max(1, parseInt(limit, 10) || 10),
+};
+
+const tweets = await Tweet.aggregatePaginate(tweetAggregate, options);
+
+return res
+  .status(200)
+  .json(new ApiResponse(200, tweets, "Community tweets fetched successfully"));
+});
+
+export {
+  createTweet,
+  getUserTweets,
+  updateTweet,
+  deleteTweet,
+  getCommunityTweets,
+};
